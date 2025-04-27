@@ -94,12 +94,6 @@ def simulate_monte_carlo(
     num_simulations=1000, 
     random_seed=None
 ):
-    """
-    Returns an array of shape (num_simulations, N_prices) such that:
-      - prices[:, 0] == start_price exactly,
-      - if real_log_returns is provided, prices[:, 1:1+M] reproduce that history,
-      - and the remainder are Monte Carlo paths for the rest of the day.
-    """
     if random_seed is not None:
         np.random.seed(random_seed)
 
