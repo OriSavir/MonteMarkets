@@ -13,7 +13,12 @@ def fetch_minute_data(ticker, days=8):
         raise ValueError("Max number of days is 8 for minute data")
     if days < 1:
         raise ValueError("Min number of days is 1 for minute data")
-    data = yf.download(ticker, period=f'{days}d', interval='1m', progress=False)
+    try:
+        data = yf.download(ticker, period=f'{days}d', interval='1m', progress=False)
+    except Exception as e:
+        raise ValueError(f"Could not fetch the data for {ticker}")
+    if data.empty:
+        raise ValueError(f"Could not fetch the data for {ticker} (empty response)")
     data = data.reset_index()
     data.columns = [col[0] if isinstance(col, tuple) else col for col in data.columns]
     return data
@@ -24,10 +29,12 @@ def fetch_most_recent_open(ticker):
     today_data = today_data.reset_index()
     today_data.columns = [col[0] if isinstance(col, tuple) else col for col in today_data.columns]
 
-    if today_data.empty or today not in today_data['Datetime'].dt.date.values:
+    if today_data.empty:
         fallback_data = yf.download(ticker, period='5d', interval='1d', progress=False)
         fallback_data = fallback_data.reset_index()
         fallback_data.columns = [col[0] if isinstance(col, tuple) else col for col in fallback_data.columns]
+        if fallback_data.empty:
+            raise ValueError(f"Could not fetch open price for {ticker} (empty response)")
         recent_open = fallback_data['Open'].iloc[-1]
         corresponding_date = fallback_data['Date'].iloc[-1]
     else:
@@ -53,6 +60,10 @@ def add_returns(data):
     return data.dropna(subset=['Return', 'Log_Return'])
 
 def compute_intraday_volatility_profile(data):
+    data.set_index('Datetime',inplace=True)
+    intraday = data.between_time(datetime.time(9, 31), datetime.time(16, 0))
+    intraday = intraday.reset_index()
+    data = data.reset_index()
     return data.groupby('Time')['Log_Return'].std()
 
 # ---------------------------
@@ -82,6 +93,8 @@ def simulate_monte_carlo(scaled_vol_profile, start_price, num_simulations=1000, 
     
     num_minutes = len(scaled_vol_profile)
     random_shocks = np.random.randn(num_simulations, num_minutes)
+    random_shocks[:, 0] = 0
+    
     returns = random_shocks * scaled_vol_profile.values
     cum_returns = np.cumsum(returns, axis=1)
     relative_prices = np.exp(cum_returns)
@@ -93,7 +106,7 @@ def get_confidence_intervals(prices, levels=[95, 99]):
     for level in levels:
         low = np.percentile(prices[:, -1], (100 - level) / 2)
         high = np.percentile(prices[:, -1], 100 - (100 - level) / 2)
-        intervals[f"{level}%"] = (low, high)
+        intervals[level] = (low, high)
     return intervals
 
 
@@ -102,7 +115,10 @@ def generate_simulation_data(ticker, num_simulations=1000, random_seed=None):
     Gets data for a ticker, processes it, runs the Monte Carlo simulation, and returns
     the simulated price paths and confidence intervals for the close price.
     """
-    minute_data = fetch_minute_data(ticker)
+    try:
+        minute_data = fetch_minute_data(ticker)
+    except ValueError as e:
+        raise ValueError(f"Error fetching data for {ticker}: {e}")
     minute_data = add_returns(minute_data)
 
     vol_profile = compute_intraday_volatility_profile(minute_data)
@@ -122,6 +138,8 @@ def generate_simulation_data(ticker, num_simulations=1000, random_seed=None):
         random_seed=random_seed
     )
 
+    expected_prices = np.mean(prices, axis=0)
+
     intervals = get_confidence_intervals(prices)
 
-    return prices, intervals, recent_open_date
+    return prices, expected_prices, intervals, recent_open_date
