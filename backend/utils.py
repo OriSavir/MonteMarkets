@@ -30,20 +30,20 @@ def fetch_most_recent_price_and_time(ticker):
     today_data.columns = [col[0] if isinstance(col, tuple) else col for col in today_data.columns]
 
     if today_data.empty or today not in today_data['Datetime'].dt.date.values:
-        # No trading today (weekend, holiday)
-        print("Non-trading day detected: using last available open price.")
+        print("Non-trading day detected: using last available CLOSE price.")
         fallback_data = yf.download(ticker, period='5d', interval='1d', progress=False)
         fallback_data = fallback_data.reset_index()
         fallback_data.columns = [col[0] if isinstance(col, tuple) else col for col in fallback_data.columns]
 
-        recent_open = fallback_data['Open'].iloc[-1]
+        recent_close = fallback_data['Close'].iloc[-1]
         corresponding_date = fallback_data['Date'].iloc[-1]
-        return float(recent_open), None, corresponding_date  # No current time to slice
+        return float(recent_close), None, corresponding_date
     else:
         latest_row = today_data.iloc[-1]
         current_price = latest_row['Close']
         current_time = latest_row['Datetime'].time()
         return float(current_price), current_time, today
+
 
 
     
@@ -94,35 +94,40 @@ def simulate_monte_carlo(
     num_simulations=1000, 
     random_seed=None
 ):
+    """
+    Returns an array of shape (num_simulations, N_prices) such that:
+      - prices[:, 0] == start_price exactly,
+      - if real_log_returns is provided, prices[:, 1:1+M] reproduce that history,
+      - and the remainder are Monte Carlo paths for the rest of the day.
+    """
     if random_seed is not None:
         np.random.seed(random_seed)
-    
-    if real_log_returns is not None:
-        num_real_minutes = len(real_log_returns)
+
+    total_minutes = len(scaled_vol_profile)
+    real_minutes  = len(real_log_returns) if real_log_returns is not None else 0
+    sim_minutes   = total_minutes - real_minutes
+    if sim_minutes < 0:
+        raise ValueError("Too many real returns for the vol profile length")
+
+    zeros = np.zeros((num_simulations, 1))
+
+    if real_log_returns is not None and real_minutes > 0:
+        real_block = np.tile(real_log_returns, (num_simulations, 1))
     else:
-        num_real_minutes = 0
+        real_block = np.zeros((num_simulations, 0))
 
-    num_total_minutes = len(scaled_vol_profile)
-    num_sim_minutes = num_total_minutes - num_real_minutes
+    shocks = np.random.randn(num_simulations, sim_minutes)
+    sim_block = shocks * scaled_vol_profile.values[-sim_minutes:,]
 
-    if num_sim_minutes <= 0:
-        raise ValueError("No minutes left to simulate")
-
-    random_shocks = np.random.randn(num_simulations, num_sim_minutes)
-    simulated_returns = random_shocks * scaled_vol_profile.values[-num_sim_minutes:]
-
-    if real_log_returns is not None:
-        real_returns_expanded = np.tile(real_log_returns, (num_simulations, 1))
-        all_returns = np.concatenate([real_returns_expanded, simulated_returns], axis=1)
-    else:
-        all_returns = simulated_returns
+    all_returns = np.concatenate([zeros, real_block, sim_block], axis=1)
 
     cum_returns = np.cumsum(all_returns, axis=1)
+    rel_prices  = np.exp(cum_returns)
 
-    relative_prices = np.exp(cum_returns)
-    prices = start_price * relative_prices
+    prices = start_price * rel_prices
 
     return prices
+
 
 
 def get_confidence_intervals(prices, levels=[95, 99]):
@@ -156,31 +161,26 @@ def generate_simulation_data(ticker, num_simulations=1000, random_seed=None):
     start_price, current_time, start_date = fetch_most_recent_price_and_time(ticker)
 
     if current_time is not None:
-        today_data = yf.download(ticker, period='1d', interval='1m', progress=False)
-        today_data = today_data.reset_index()
-        today_data.columns = [col[0] if isinstance(col, tuple) else col for col in today_data.columns]
+        today_df = yf.download(ticker, period='1d', interval='1m', progress=False)
+        today_df = today_df.reset_index()
+        today_df.columns = [c[0] if isinstance(c, tuple) else c for c in today_df.columns]
+        today_df['Time'] = today_df['Datetime'].dt.time
+        today_df['Log_Return'] = np.log(today_df['Close']/today_df['Close'].shift(1))
 
-        today_data['Date'] = today_data['Datetime'].dt.date
-        today_data['Time'] = today_data['Datetime'].dt.time
-        today_data = today_data[today_data['Date'] == start_date]
-
-        today_data['Log_Return'] = np.log(today_data['Close'] / today_data['Close'].shift(1))
-        today_data = today_data.dropna(subset=['Log_Return'])
-
-        real_log_returns = today_data[today_data['Time'] <= current_time]['Log_Return'].values
+        real_df = today_df[today_df['Time'] <= current_time].dropna(subset=['Log_Return'])
+        real_log_returns = real_df['Log_Return'].values
     else:
         real_log_returns = None
 
     prices = simulate_monte_carlo(
-        scaled_vol_profile, 
+        scaled_vol_profile,
         start_price,
-        real_log_returns=real_log_returns, 
-        num_simulations=num_simulations, 
+        real_log_returns=real_log_returns,
+        num_simulations=num_simulations,
         random_seed=random_seed
     )
 
-    expected_prices = np.mean(prices, axis=0)
-
-    intervals = get_confidence_intervals(prices)
+    expected_prices = prices.mean(axis=0)
+    intervals       = get_confidence_intervals(prices)
 
     return prices, expected_prices, intervals, start_date
