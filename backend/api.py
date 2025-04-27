@@ -21,7 +21,7 @@ class SimulationResponse(BaseModel):
 
 
 @app.get("/simulate/{ticker}")
-async def simulate(ticker: str):
+async def simulate(ticker: str, num_simulations: int= 10000, random_seed = None):
     """
     The endpoint to run a Monte Carlo simulation on a given ticker.
     """
@@ -31,7 +31,7 @@ async def simulate(ticker: str):
             raise ValueError("Ticker must be alphabetic characters only")
         if len(ticker) < 1 or len(ticker) > 5:
             raise ValueError("Ticker length must be between 1 and 5 characters")
-        simulation_data, expected_p_data, confidence_intervals, recent_open_date = generate_simulation_data(ticker)
+        simulation_data, expected_p_data, confidence_intervals, recent_open_date = generate_simulation_data(ticker, num_simulations, random_seed)
         response = SimulationResponse(
             prices=simulation_data.tolist(),
             expected_prices=expected_p_data.tolist(),
