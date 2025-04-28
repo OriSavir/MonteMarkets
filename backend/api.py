@@ -49,8 +49,17 @@ async def simulate(ticker: str, num_simulations: int= 1000, random_seed: Optiona
     The endpoint to run a Monte Carlo simulation on a given ticker.
     """
     job_id = str(uuid.uuid4())
-    job = q.enqueue(generate_simulation_data, ticker, num_simulations, random_seed, job_id=job_id)
+    job = q.enqueue(
+        generate_simulation_data, 
+        ticker, 
+        num_simulations, 
+        random_seed, 
+        job_id=job_id,
+        job_timeout=300,
+        result_ttl=300,
+    )
     return JSONResponse(content={"job_id": job_id}, status_code=202)
+
 
 @app.get("/simulate/{ticker}/result/{job_id}", response_model=SimulationResponse)
 async def get_simulation_result(ticker: str, job_id: str):

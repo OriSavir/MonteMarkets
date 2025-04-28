@@ -137,7 +137,7 @@ def generate_simulation_data(ticker, num_simulations=1000, random_seed=None):
     Gets data for a ticker, processes it, runs the Monte Carlo simulation, and returns
     a JSON-serializable dict
     """
-    time.sleep(20)
+    #time.sleep(20)
     try:
         minute_data = fetch_minute_data(ticker)
     except ValueError as e:
