@@ -124,34 +124,31 @@ def simulate_monte_carlo(
 
 
 
-def get_confidence_intervals(prices, levels=[95, 99]):
-    intervals = {}
-    for level in levels:
-        low = np.percentile(prices[:, -1], (100 - level) / 2)
-        high = np.percentile(prices[:, -1], 100 - (100 - level) / 2)
-        intervals[level] = (low, high)
-    return intervals
+def get_confidence_intervals(prices, level=95):
+    low = np.percentile(prices[:, -1], (100 - level) / 2)
+    high = np.percentile(prices[:, -1], 100 - (100 - level) / 2)
+    interval = (low, high)
+    return interval
 
+import time
 
 def generate_simulation_data(ticker, num_simulations=1000, random_seed=None):
     """
     Gets data for a ticker, processes it, runs the Monte Carlo simulation, and returns
-    the simulated price paths and confidence intervals for the close price.
+    a JSON-serializable dict
     """
+    time.sleep(20)
     try:
         minute_data = fetch_minute_data(ticker)
     except ValueError as e:
         raise ValueError(f"Error fetching data for {ticker}: {e}")
+
     minute_data = add_returns(minute_data)
-
     vol_profile = compute_intraday_volatility_profile(minute_data)
-
     daily_returns = minute_data.groupby('Date')['Log_Return'].sum()
-
     daily_volatility = forecast_daily_volatility(daily_returns)
-
     scaled_vol_profile = scale_volatility_profile(vol_profile, daily_volatility)
-    
+
     start_price, current_time, start_date = fetch_most_recent_price_and_time(ticker)
 
     if current_time is not None:
@@ -160,7 +157,6 @@ def generate_simulation_data(ticker, num_simulations=1000, random_seed=None):
         today_df.columns = [c[0] if isinstance(c, tuple) else c for c in today_df.columns]
         today_df['Time'] = today_df['Datetime'].dt.time
         today_df['Log_Return'] = np.log(today_df['Close']/today_df['Close'].shift(1))
-
         real_df = today_df[today_df['Time'] <= current_time].dropna(subset=['Log_Return'])
         real_log_returns = real_df['Log_Return'].values
     else:
@@ -174,7 +170,34 @@ def generate_simulation_data(ticker, num_simulations=1000, random_seed=None):
         random_seed=random_seed
     )
 
-    expected_prices = prices.mean(axis=0)
-    intervals       = get_confidence_intervals(prices)
+    expected_prices = prices.mean(axis=0).round(2)
+    intervals = get_confidence_intervals(prices)
+    intervals = tuple(round(i, 2) for i in intervals)
+    prices = prices.round(2)
+    final_prices = prices[:, -1]
 
-    return prices, expected_prices, intervals, start_date
+    return {
+        "prices": prices.tolist(),
+        "expected_prices": expected_prices.tolist(),
+        "intervals": intervals,
+        "recent_open_date": str(start_date),
+        "final_prices": final_prices.tolist()
+    }
+
+
+
+def clean_numpy(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, dict):
+        return {k: clean_numpy(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_numpy(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return tuple(clean_numpy(v) for v in obj)
+    else:
+        return obj
