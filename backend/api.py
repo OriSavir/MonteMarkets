@@ -3,6 +3,8 @@ from .utils import generate_simulation_data, clean_numpy
 from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
+from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel
 import numpy as np
 
@@ -22,6 +24,14 @@ REDIS_PORT = int(os.getenv("REDIS_PORT"))
 
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 async def root():
@@ -82,5 +92,20 @@ async def get_simulation_result(ticker: str, job_id: str):
 
     elif job.is_started:
         return JSONResponse(content={"status": "in_progress"}, status_code=202)
+    
+@app.get("/metrics")
+async def metrics():
+    queue_length = len(q)
+    return {"queue_length": queue_length}
+
+@app.get("/health")
+async def health_check():
+    try:
+        redis_conn.ping()
+        return {"status": "healthy"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+
 
 
