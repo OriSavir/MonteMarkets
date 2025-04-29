@@ -35,8 +35,6 @@ export default function SimulationChart({ prices, expectedPrices, date }: Simula
     const chartRef = useRef<ChartJS<"line">>(null);
     const timeLabels = generateTimeLabels();
 
-    // Create datasets for all simulation lines
-
     const sampleSimulations = (simulations: number[][], sampleSize: number = 100) => {
         if (simulations.length <= sampleSize) return simulations;
         
@@ -54,19 +52,19 @@ export default function SimulationChart({ prices, expectedPrices, date }: Simula
 
     const simulationDatasets = sampleSimulations(prices, 100).map((simulation, index) => ({
         data: simulation,
-        borderColor: 'rgba(156, 163, 175, 0.1)',
-        backgroundColor: 'rgba(156, 163, 175, 0)',
+        borderColor: 'rgba(102, 211, 115, 0.17)',
+        backgroundColor: 'rgba(171, 235, 114, 0)',
         pointRadius: 0,
         borderWidth: 1,
-        // Make simulation lines not interactive with tooltips
+        hoverBorderWidth: 0,
+        hoverBorderColor: 'transparent',
+        hoverBackgroundColor: 'transparent',
         tooltip: {
             enabled: false
         },
-        // Don't include these in the legend
         showLine: true,
     }));
 
-    // Create dataset for expected prices (with high opacity)
     const expectedDataset = {
         label: 'Expected Price',
         data: expectedPrices,
@@ -74,7 +72,6 @@ export default function SimulationChart({ prices, expectedPrices, date }: Simula
         backgroundColor: 'rgba(59, 130, 246, 0.5)',
         borderWidth: 2,
         pointRadius: 0,
-        // Make this the only line that shows in tooltips
         tooltip: {
             enabled: true
         },
@@ -132,9 +129,22 @@ export default function SimulationChart({ prices, expectedPrices, date }: Simula
                     text: 'Time (EST)',
                 },
                 ticks: {
+                    // Show every 15 minutes
+                    callback: function(value, index) {
+                        const timeLabel = this.getLabelForValue(value as number);
+                        const [hour, minute] = timeLabel.split(':').map(Number);
+                        return (minute % 15 === 0) ? timeLabel : '';
+                    },
                     maxRotation: 45,
                     minRotation: 45,
                 },
+                grid: {
+                    // Highlight hour marks
+                    color: (context) => {
+                        const timeLabel = timeLabels[context.index];
+                        return timeLabel && timeLabel.endsWith(':00') ? 'rgba(0, 0, 0, 0.1)' : 'rgba(0, 0, 0, 0.05)';
+                    }
+                }
             },
             y: {
                 title: {
@@ -148,6 +158,19 @@ export default function SimulationChart({ prices, expectedPrices, date }: Simula
                 }
             },
         },
+        elements: {
+            line: {
+                tension: 0.2,
+                hoverBorderWidth: (ctx) => {
+                    return ctx.datasetIndex === simulationDatasets.length ? 3 : 0;
+                }
+            },
+            point: {
+                hoverRadius: (ctx) => {
+                    return ctx.datasetIndex === simulationDatasets.length ? 4 : 0;
+                }
+            }
+        }
     };
 
     return (
