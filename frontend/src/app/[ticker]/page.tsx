@@ -42,11 +42,9 @@ export default function TickerPage() {
         const response = await getSimulationResult(ticker, jobId);
         
         if ('status' in response) {
-          // Still processing
           return;
         }
         
-        // We have a result
         setResult(response);
         setLoading(false);
         clearInterval(pollInterval);
@@ -100,9 +98,15 @@ export default function TickerPage() {
   // Format the date from the API
   const date = formatDateString(result.recent_open_date);
 
-  // Get the current price (first value of expected_prices)
-  const currentPrice = result.expected_prices[0];
-
+  const currentTime = new Date();
+  const marketOpenTime = new Date(currentTime);
+  marketOpenTime.setHours(9, 30, 0, 0);
+  let minutesSinceMarketOpen = Math.floor((currentTime.getTime() - marketOpenTime.getTime()) / (1000 * 60));
+  minutesSinceMarketOpen = minutesSinceMarketOpen % 390;
+  const currentPrice = result.expected_prices[Math.min(389, minutesSinceMarketOpen - 1)];
+  //console.log('expected_prices', result.expected_prices);
+  //console.log('first price walk ', result.prices[0]);
+  //console.log('second price walk ', result.prices[1]);
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-4xl mx-auto">
